@@ -78,8 +78,8 @@ jobs:
       - name: Resolve qemu-hisilicon HEAD
         id: qemu-rev
         run: |
-          # TODO: switch ref to the default branch once widgetii/qemu-hisilicon#118 merges
-          ref=hi3519dv500
+          # qemu-hisilicon#118 (hi3519dv500/hi3516dv500 machines) is merged to master
+          ref=master
           sha=$(git ls-remote https://github.com/widgetii/qemu-hisilicon "$ref" | cut -f1)
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
