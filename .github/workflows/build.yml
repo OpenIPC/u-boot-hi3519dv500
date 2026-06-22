@@ -60,17 +60,73 @@ jobs:
             output/boot-*.bin
             output/smoke-*.bin
 
-  # TODO: qemu_smoke — widgetii/qemu-hisilicon has no hi3519dv500/hi3516dv500 machine
-  # yet (ARMv8 V5 unimplemented; only hi3516cv610 exists on ARMv7). build.sh already
-  # emits output/smoke-hi3519dv500.bin (raw u-boot-z) so this gate can be wired in
-  # exactly like u-boot-hi3516cv6xx once a hi3519dv500 machine lands upstream.
+  # qemu_smoke — boot the freshly-built raw u-boot-z (smoke-hi3519dv500.bin) on the
+  # emulated Hi3519DV500 (widgetii/qemu-hisilicon) and assert the U-Boot banner.
+  qemu_smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install QEMU build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            build-essential ninja-build meson pkg-config \
+            libglib2.0-dev libpixman-1-dev libfdt-dev zlib1g-dev \
+            libslirp-dev python3 python3-venv
+
+      - name: Resolve qemu-hisilicon HEAD
+        id: qemu-rev
+        run: |
+          # TODO: switch ref to the default branch once widgetii/qemu-hisilicon#118 merges
+          ref=hi3519dv500
+          sha=$(git ls-remote https://github.com/widgetii/qemu-hisilicon "$ref" | cut -f1)
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Cache qemu-system-aarch64
+        id: cache-qemu
+        uses: actions/cache@v4
+        with:
+          path: qemu-arm64
+          key: qemu-hisilicon-aarch64-${{ steps.qemu-rev.outputs.sha }}
+
+      - name: Build qemu-system-aarch64 (cache miss)
+        if: steps.cache-qemu.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "${{ steps.qemu-rev.outputs.ref }}" \
+            https://github.com/widgetii/qemu-hisilicon qemu-hisilicon
+          cd qemu-hisilicon
+          bash qemu/setup.sh
+          cp qemu-src/build/qemu-system-aarch64 "$GITHUB_WORKSPACE/qemu-arm64"
+          chmod +x "$GITHUB_WORKSPACE/qemu-arm64"
+
+      - name: Download boot images
+        uses: actions/download-artifact@v4
+        with:
+          name: boot-images
+
+      - name: Smoke-test U-Boot in QEMU
+        timeout-minutes: 2
+        run: |
+          chmod +x ./qemu-arm64
+          test -f smoke-hi3519dv500.bin
+          timeout 60 ./qemu-arm64 -M hi3519dv500,flash-file=smoke-hi3519dv500.bin \
+            -nographic -serial mon:stdio -d unimp,guest_errors \
+            </dev/null > uboot.txt 2>&1 || true
+          echo "== captured U-Boot output =="; cat uboot.txt
+          if grep -qE 'U-Boot 2022|DRAM:|Hit any key' uboot.txt; then
+            echo "PASS: U-Boot booted past startup"
+          else
+            echo "FAIL: U-Boot did not print a recognised banner"; exit 1
+          fi
 
   # Publish — upload every signed boot image verbatim to the OpenIPC/firmware `latest`
   # release. Requires the FIRMWARE_RELEASE_TOKEN secret (fine-grained PAT with
   # Contents: read+write on OpenIPC/firmware):
   #   gh secret set FIRMWARE_RELEASE_TOKEN -R OpenIPC/u-boot-hi3519dv500
   publish:
-    needs: build
+    needs: [build, qemu_smoke]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
