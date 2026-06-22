@@ -1,0 +1,107 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Mirrors the build -> (qemu_smoke) -> publish shape of the OpenIPC per-SoC
+# u-boot repos (see OpenIPC/u-boot-hi3516cv6xx), adapted for the ARMv8 Hi3519DV500:
+#   * build.sh builds hi-gzip from source, builds u-boot per DDR binning, builds the
+#     GSL loader, and runs the vendor image_tool to produce GSL-signed boot images
+#     (hence pycryptodome). Cross toolchain is the generic apt aarch64-linux-gnu.
+#   * Output is boot-hi3519dv500-<binning>-nor.bin (dmeb, dmebpro). The raw u-boot-z
+#     (smoke-hi3519dv500.bin, identical across binnings) is kept for a future QEMU gate.
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04          # generic aarch64-linux-gnu here is gcc-13 (gnu17);
+    timeout-minutes: 40            # gcc-15 (C23) would break u-boot 2022.07.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Prepare
+        timeout-minutes: 15
+        run: |
+          # apt mirrors on hosted runners intermittently hang on the mirrorlist
+          # fetch; bound each attempt with `timeout` so the retry fires.
+          install() {
+            sudo timeout 180 apt-get update && \
+            sudo timeout 240 apt-get install -y \
+              gcc-aarch64-linux-gnu u-boot-tools lzop gnutls-dev lzma-alone \
+              bison flex bc xz-utils autoconf automake autopoint
+          }
+          for i in 1 2 3 4; do
+            install && break
+            [ "$i" = 4 ] && { echo "apt failed after 4 attempts" >&2; exit 1; }
+            echo "apt attempt $i failed/timed out; retrying in $((i*10))s" >&2
+            sleep $((i*10))
+          done
+          python -m pip install pycryptodome
+          # build.sh and vendor sub-makes rely on bash features when invoked as /bin/sh
+          sudo ln -sf /bin/bash /bin/sh
+
+      - name: Build
+        run: bash build.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-images
+          path: |
+            output/boot-*.bin
+            output/smoke-*.bin
+
+  # TODO: qemu_smoke — widgetii/qemu-hisilicon has no hi3519dv500/hi3516dv500 machine
+  # yet (ARMv8 V5 unimplemented; only hi3516cv610 exists on ARMv7). build.sh already
+  # emits output/smoke-hi3519dv500.bin (raw u-boot-z) so this gate can be wired in
+  # exactly like u-boot-hi3516cv6xx once a hi3519dv500 machine lands upstream.
+
+  # Publish — upload every signed boot image verbatim to the OpenIPC/firmware `latest`
+  # release. Requires the FIRMWARE_RELEASE_TOKEN secret (fine-grained PAT with
+  # Contents: read+write on OpenIPC/firmware):
+  #   gh secret set FIRMWARE_RELEASE_TOKEN -R OpenIPC/u-boot-hi3519dv500
+  publish:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download boot images
+        uses: actions/download-artifact@v4
+        with:
+          name: boot-images
+          path: artifacts
+
+      - name: Upload to OpenIPC/firmware latest release
+        env:
+          GH_TOKEN: ${{ secrets.FIRMWARE_RELEASE_TOKEN }}
+        run: |
+          set -eu
+          # Releases API occasionally returns 502/503; retry with backoff.
+          upload() {
+            local f="$1" i
+            for i in 1 2 3 4 5; do
+              if gh release upload latest "$f" --clobber -R OpenIPC/firmware; then
+                return 0
+              fi
+              [ "$i" = "5" ] && return 1
+              echo "upload attempt $i failed; sleeping $((i*10))s" >&2
+              sleep $((i*10))
+            done
+          }
+          shopt -s nullglob
+          files=(artifacts/boot-*.bin)
+          [ "${#files[@]}" -gt 0 ] || { echo "no boot-*.bin artifacts found" >&2; exit 1; }
+          for f in "${files[@]}"; do
+            echo "uploading $(basename "$f")"
+            upload "$f"
+          done
