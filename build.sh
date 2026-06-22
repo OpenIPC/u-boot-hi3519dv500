@@ -1,4 +1,5 @@
-#!/bin/bash -e
+#!/bin/bash
+set -eo pipefail   # NB: `bash build.sh` ignores a shebang -e, so set it explicitly
 # Build signed boot images for Hi3519DV500 (mirror of u-boot-hi3516cv6xx/build.sh,
 # adapted for the ARMv8/aarch64 V5 SoC). Produces, per DDR binning:
 #   output/boot-hi3519dv500-<binning>-nor.bin   (GSL-signed boot image, flash this)
@@ -60,6 +61,8 @@ build_dv500(){
         cp -f u-boot-${CHIP}.bin image_tool/input/u-boot-original.bin
         cp -f reginfo/${reginfo[$BINNING]} image_tool/input/reg_info.bin
         ( cd image_tool && ${PYTHON} oem/oem_quick_build.py )
+        # the signer logs errors but still exits 0 — verify the image really exists
+        test -f image_tool/image/oem/boot_image.bin
         mv image_tool/image/oem/boot_image.bin ${BUILD_DIR}/boot-${CHIP}-${BINNING}-nor.bin
         echo "  -> ${BUILD_DIR}/boot-${CHIP}-${BINNING}-nor.bin"
     done

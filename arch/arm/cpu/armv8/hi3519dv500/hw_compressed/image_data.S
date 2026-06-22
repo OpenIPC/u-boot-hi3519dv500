@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-	.section .image,#alloc
+	.section .image,"a"
 	.globl	input_data
     /*gzip source addr must be 16 bytes aligned*/
     .balign 16

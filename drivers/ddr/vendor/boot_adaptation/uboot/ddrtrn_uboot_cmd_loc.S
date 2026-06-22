@@ -1,6 +1,6 @@
 /* DDR Training command codes location. Copy from DDR to SRAM to train DDR. */
 
-.section .image,#alloc
+.section .image,"a"
 
 .globl g_ddrtrn_training_cmd_start
 g_ddrtrn_training_cmd_start:
