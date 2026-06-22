@@ -86,6 +86,11 @@ jobs:
           GH_TOKEN: ${{ secrets.FIRMWARE_RELEASE_TOKEN }}
         run: |
           set -eu
+          # Skip gracefully until the publish secret is configured, so main stays green.
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::notice::FIRMWARE_RELEASE_TOKEN not set — skipping firmware publish"
+            exit 0
+          fi
           # Releases API occasionally returns 502/503; retry with backoff.
           upload() {
             local f="$1" i
