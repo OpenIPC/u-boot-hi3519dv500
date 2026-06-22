@@ -104,3 +104,25 @@ __pycache__
 # pylint files
 /pylint.cur
 /pylint.out/
+
+# OpenIPC build outputs (build.sh)
+/output/
+/image_tool/image/
+/image_tool/oem/tmp/
+/image_tool/input/u-boot-original.bin
+/image_tool/input/reg_info.bin
+/image_tool/input/gsl.bin
+/gsl/pub/
+/extras/gzip/bin/
+/extras/gzip/gzip-1.11/
+# hi-gzip binary build.sh drops into the SoC hw_compressed dir
+/arch/arm/cpu/armv8/hi3519dv500/hw_compressed/gzip
+# vendor DDR training dependency files
+drivers/ddr/vendor/**/*.d
+
+# Compiled python (image_tool ships none in git)
+__pycache__/
+*.pyc
+# Vendor binary sources that u-boot's *.bin rule would otherwise hide
+!reginfo/*.bin
+!image_tool/input/cfct_table_*.bin

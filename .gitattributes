@@ -1,0 +1,12 @@
+# Declare files that always have LF line endings on checkout
+* text eol=lf
+# Denote all files that are truly binary and should not be modified
+*.bmp binary
+*.ttf binary
+*.gz binary
+
+# Vendor binaries — never line-ending/CRLF normalize (would corrupt them)
+*.bin binary
+*.xlsm binary
+*.xz binary
+*.a binary
