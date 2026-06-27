@@ -20,6 +20,8 @@
 #include <serial.h>
 #include <linux/mtd/mtd.h>
 #include <linux/delay.h>
+#include <fdt_support.h>
+#include <openipc.h>
 
 static struct mm_region hi3519dv500_mem_map[] = {
 	{
@@ -371,6 +373,11 @@ int is_auto_update(void)
 
 int misc_init_r(void)
 {
+	/* Scan the SPI-NOR for the FIT kernel + squashfs rootfs and populate
+	 * kernaddr/kernsize/rootaddr/rootsize/mtdparts so bootnor can read the
+	 * kernel and the kernel cmdline points root= at the right partition. */
+	openipc_helper();
+
 #ifdef CONFIG_RANDOM_ETHADDR
 	random_init_r();
 #endif
@@ -420,6 +427,31 @@ int board_init(void)
 
 	return 0;
 }
+
+#if defined(CONFIG_OF_BOARD_SETUP)
+int ft_board_setup(void *blob, struct bd_info *bd)
+{
+	int chosen;
+
+	/*
+	 * The published FIT kernel DTB ships stale linux,initrd-start/end
+	 * pointers (a leftover ramdisk reservation at 0x60000040..0x61000000,
+	 * past the top of usable DRAM).  We boot the squashfs rootfs directly
+	 * from NOR, so there is no ramdisk — leaving them in makes the kernel
+	 * try to unpack a bogus 16 MiB initramfs from non-existent memory,
+	 * scribbling over RAM and crashing intermittently.  Strip them here;
+	 * fdt_initrd() (called later in image_setup_libfdt) re-adds correct
+	 * values whenever a real ramdisk is actually loaded.
+	 */
+	chosen = fdt_path_offset(blob, "/chosen");
+	if (chosen >= 0) {
+		fdt_delprop(blob, chosen, "linux,initrd-start");
+		fdt_delprop(blob, chosen, "linux,initrd-end");
+	}
+
+	return 0;
+}
+#endif
 
 int dram_init(void)
 {

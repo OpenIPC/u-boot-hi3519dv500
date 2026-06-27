@@ -163,8 +163,10 @@ e* ---------------------------------------------------------------------*/
  * Defines where the kernel and FDT will be put in RAM
  */
 
-/* Assume we boot with root on the seventh partition of eMMC */
-#define CONFIG_BOOTCOMMAND "bootm 0x42000000"
+/* SPI-NOR boot: misc_init_r() runs openipc_helper() which scans the NOR for
+ * the FIT kernel + squashfs rootfs and sets kernaddr/kernsize/mtdparts, then
+ * bootnor reads the FIT into RAM and bootm's it. */
+#define CONFIG_BOOTCOMMAND "run bootnor"
 #define CONFIG_SYS_USB_XHCI_MAX_ROOT_PORTS 2
 #define CONFIG_USB_MAX_CONTROLLER_COUNT 1
 #define BOOT_TARGET_DEVICES(func) \
@@ -172,6 +174,40 @@ e* ---------------------------------------------------------------------*/
 func(MMC, mmc, 1) \
 func(DHCP, dhcp, na)
 #include <config_distro_bootcmd.h>
+
+/* The gzip FIT kernel decompresses to ~13 MiB; the default 8 MiB bootm length
+ * makes gunzip fail with inflate() -5 (Z_BUF_ERROR).  Give it 32 MiB. */
+#define CONFIG_SYS_BOOTM_LEN (32 * 1024 * 1024)
+
+/* NOR layout (16 MiB): boot 512k @0, env 256k @0x80000 (CONFIG_ENV_OFFSET),
+ * firmware (kernel+rootfs blob) @0xC0000.  The kernel/rootfs sub-sizes below
+ * are fallbacks — openipc_helper() recomputes kernaddr/kernsize/mtdparts from
+ * the actual FIT + squashfs offsets it finds, so root=/dev/mtdblock3 always
+ * lands on the squashfs regardless of kernel size. baseaddr is a RAM scratch
+ * (NOT CONFIG_SYS_LOAD_ADDR, which is the kernel decompress target 0x40080000). */
+/* The ${...} below are escaped (\$) so the *default env* stores them
+ * literally; `run setargs` (setenv bootargs ${bootargs}) strips one level and
+ * CONFIG_BOOTARGS_SUBST then expands them at bootm time via process_subst().
+ * osmem/mtdparts are recomputed at runtime by openipc_helper(); mtdids=sfc is
+ * the kernel's NOR MTD name, so root=/dev/mtdblock3 lands on the squashfs. */
+#define CONFIG_BOOTARGS \
+	"mem=\\${osmem} console=ttyAMA0,115200 panic=20 " \
+	"root=/dev/mtdblock3 rootfstype=squashfs init=/init " \
+	"mtdparts=\\${mtdids}:\\${mtdparts} \\${extras}"
+
+#define CONFIG_EXTRA_ENV_SETTINGS \
+	"baseaddr=0x42000000\0" \
+	"kernaddr=0xC0000\0" \
+	"kernsize=0x600000\0" \
+	"osmem=512M\0" \
+	"extras=\0" \
+	"mtdids=sfc\0" \
+	"mtdparts=512k(boot),256k(env),6144k(kernel),8192k(rootfs)," \
+		"14336k@0xC0000(firmware),-(rootfs_data)\0" \
+	"bootnor=sf probe 0; setenv setargs setenv bootargs ${bootargs}; " \
+		"run setargs; sf read ${baseaddr} ${kernaddr} ${kernsize}; " \
+		"bootm ${baseaddr}\0" \
+	"bootargs=" CONFIG_BOOTARGS "\0"
 
 /*allow change env*/
 #define  CONFIG_ENV_OVERWRITE
