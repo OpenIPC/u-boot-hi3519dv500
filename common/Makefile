@@ -124,5 +124,6 @@ endif
 
 obj-y += flash_read.o
 obj-y += flash_write.o
+obj-y += openipc.o
 
 obj-$(CONFIG_ARCH_BSP) += boot_image.o

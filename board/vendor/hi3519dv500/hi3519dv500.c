@@ -20,6 +20,7 @@
 #include <serial.h>
 #include <linux/mtd/mtd.h>
 #include <linux/delay.h>
+#include <openipc.h>
 
 static struct mm_region hi3519dv500_mem_map[] = {
 	{
@@ -371,6 +372,11 @@ int is_auto_update(void)
 
 int misc_init_r(void)
 {
+	/* Scan the SPI-NOR for the FIT kernel + squashfs rootfs and populate
+	 * kernaddr/kernsize/rootaddr/rootsize/mtdparts so bootnor can read the
+	 * kernel and the kernel cmdline points root= at the right partition. */
+	openipc_helper();
+
 #ifdef CONFIG_RANDOM_ETHADDR
 	random_init_r();
 #endif
