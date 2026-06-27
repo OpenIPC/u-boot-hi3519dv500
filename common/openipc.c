@@ -187,7 +187,8 @@ int firmware_scan(void) {
 
 int openipc_helper() {
   char msize[16];
+  /* CONFIG_BOOTARGS expands ${osmem} into the kernel's mem= argument. */
   sprintf(msize, "%ldM", gd->ram_size / 1024 / 1024);
-  env_set("totalmem", msize);
+  env_set("osmem", msize);
   firmware_scan();
 }
